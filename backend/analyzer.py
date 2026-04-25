@@ -148,14 +148,14 @@ def _create_completion(prompt: str, max_tokens: int = 2000) -> str:
             "summary_in_simple_words": "The Telangana government wants to repair and upgrade 38 km of a major road (SH-16). Any contractor with road-building experience and ₹2.5 lakh deposit can apply. The project is worth ₹2.5 crore and must be completed in 12 months. You'll be paid monthly based on work done, but must start within 15 days of getting the order. Submit your bid by June 10, 2026 at 3 PM."
         })
     
-    response = client.completions.create(
-        model="claude-sonnet-4-6",
-        prompt=f"{SYSTEM_PROMPT}\n\n{prompt}",
-        max_tokens_to_sample=max_tokens,
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
         temperature=0.0,
-        stop_sequences=[],
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.completion
+    return response.content[0].text
 
 
 def _analyze_chunk(text: str) -> dict[str, Any]:

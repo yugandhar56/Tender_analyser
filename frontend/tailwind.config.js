@@ -6,9 +6,17 @@ export default {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
-        brand: {
-          DEFAULT: '#1e40af',
-          dark: '#1b3a97',
+        navy: {
+          DEFAULT: '#1B2A4A',
+          light: '#EAF0FB',
+        },
+        teal: {
+          DEFAULT: '#1A6B6B',
+          light: '#E6F4F4',
+        },
+        orange: {
+          DEFAULT: '#C45A00',
+          light: '#FDF0E6',
         },
       },
     },
