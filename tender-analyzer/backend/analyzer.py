@@ -3,19 +3,70 @@ import re
 import json
 from typing import Any
 from dotenv import load_dotenv
-from anthropic import Anthropic
 
 load_dotenv()
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+# ============================================================
+# AI PROVIDER CONFIGURATION
+# ============================================================
+# Supported providers: "anthropic", "openai", "groq"
+# Set PRIMARY_PROVIDER to one of the above
+# Fallback providers will be used if primary fails
+
+PRIMARY_PROVIDER = os.getenv("AI_PROVIDER", "anthropic").lower()
+
+# Anthropic (Claude) Configuration
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# OpenAI Configuration  
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Groq Configuration (completely free)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Demo mode fallback
 DEMO_MODE = os.getenv("DEMO_MODE", "").lower() == "true"
 
-if not DEMO_MODE and (not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY.startswith("your_")):
-    print("⚠️  No valid Anthropic API key found. Running in DEMO MODE with mock responses.")
-    DEMO_MODE = True
+# Initialize clients based on available keys
+anthropic_client = None
+openai_client = None
+groq_client = None
 
-client = None
-if not DEMO_MODE:
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+# Try to initialize available clients
+if ANTHROPIC_API_KEY and not ANTHROPIC_API_KEY.startswith("your_"):
+    try:
+        from anthropic import Anthropic
+        anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        print("✓ Anthropic (Claude) client initialized")
+    except Exception as e:
+        print(f"✗ Failed to initialize Anthropic: {e}")
+
+if OPENAI_API_KEY and not OPENAI_API_KEY.startswith("your_"):
+    try:
+        from openai import OpenAI
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        print("✓ OpenAI client initialized")
+    except Exception as e:
+        print(f"✗ Failed to initialize OpenAI: {e}")
+
+if GROQ_API_KEY and not GROQ_API_KEY.startswith("your_"):
+    try:
+        from openai import OpenAI
+        # Groq uses OpenAI-compatible API
+        groq_client = OpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1"
+        )
+        print("✓ Groq client initialized (free)")
+    except Exception as e:
+        print(f"✗ Failed to initialize Groq: {e}")
+
+# Check if any client is available
+has_any_client = anthropic_client or openai_client or groq_client
+
+if not has_any_client and not DEMO_MODE:
+    print("⚠️  No valid AI API key found. Running in DEMO MODE with mock responses.")
+    DEMO_MODE = True
 
 SYSTEM_PROMPT = (
     "You are an expert government tender analyst for India, specializing in Telangana and Andhra Pradesh state tenders. "
@@ -77,6 +128,10 @@ def _extract_json(content: str) -> Any:
 
 
 def _create_completion(prompt: str, max_tokens: int = 2000) -> str:
+    """
+    Create a completion using available AI providers.
+    Tries providers in order of preference based on PRIMARY_PROVIDER setting.
+    """
     if DEMO_MODE:
         # Return mock response for demo mode
         return json.dumps({
@@ -148,14 +203,101 @@ def _create_completion(prompt: str, max_tokens: int = 2000) -> str:
             "summary_in_simple_words": "The Telangana government wants to repair and upgrade 38 km of a major road (SH-16). Any contractor with road-building experience and ₹2.5 lakh deposit can apply. The project is worth ₹2.5 crore and must be completed in 12 months. You'll be paid monthly based on work done, but must start within 15 days of getting the order. Submit your bid by June 10, 2026 at 3 PM."
         })
     
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=max_tokens,
-        temperature=0.0,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text
+    # Try providers in order of preference
+    errors = []
+    
+    # 1. Try Anthropic (Claude)
+    if PRIMARY_PROVIDER == "anthropic" and anthropic_client:
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                temperature=0.0,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except Exception as e:
+            errors.append(f"Anthropic: {e}")
+    
+    # 2. Try OpenAI
+    if PRIMARY_PROVIDER == "openai" and openai_client:
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                max_tokens=max_tokens,
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            errors.append(f"OpenAI: {e}")
+    
+    # 3. Try Groq (free) - using supported model
+    if PRIMARY_PROVIDER == "groq" and groq_client:
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",  # Updated model
+                max_tokens=max_tokens,
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            errors.append(f"Groq: {e}")
+    
+    # Fallback: try any available provider if primary fails
+    if anthropic_client and PRIMARY_PROVIDER != "anthropic":
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                temperature=0.0,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except Exception as e:
+            errors.append(f"Anthropic (fallback): {e}")
+    
+    if openai_client and PRIMARY_PROVIDER != "openai":
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                max_tokens=max_tokens,
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            errors.append(f"OpenAI (fallback): {e}")
+    
+    if groq_client and PRIMARY_PROVIDER != "groq":
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",  # Updated model
+                max_tokens=max_tokens,
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            errors.append(f"Groq (fallback): {e}")
+    
+    # All providers failed
+    raise RuntimeError(f"All AI providers failed: {'; '.join(errors)}")
 
 
 def _analyze_chunk(text: str) -> dict[str, Any]:
