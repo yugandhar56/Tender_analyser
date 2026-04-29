@@ -9,6 +9,8 @@ import {
   Building, Shield, ArrowRight, Loader, Menu, XCircle
 } from 'lucide-react'
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://tender-analyser-1.onrender.com').replace(/\/$/, '')
+
 // ==================== DATA ====================
 const sampleClients = [
   { id: 1, name: 'Rajesh Kumar', phone: '98765 43210', company: 'RK Constructions', class: 'Class II', district: 'Hyderabad', status: 'Active', subscription: 'Pro', email: 'rajesh@rkconstructions.com', gstin: '36AABCT1234H1Z2', username: 'rajesh_rk_2024', renewalDate: 'May 15, 2025' },
@@ -410,31 +412,76 @@ function TenderManagement({ tenders, onViewTender }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
   const [analysisComplete, setAnalysisComplete] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState(null)
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
-    if (file) setUploadedFile({ name: file.name, size: '2.4 MB' })
+    if (file) setUploadedFile(file)
   }
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!selectedContractor || !uploadedFile) {
       toast.error('Please select contractor and upload file')
       return
     }
+
     setAnalyzing(true)
     setAnalysisProgress(0)
-    const interval = setInterval(() => {
-      setAnalysisProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setAnalyzing(false)
-          setAnalysisComplete(true)
-          return 100
-        }
-        return prev + 25
-      })
+    setAnalysisResult(null)
+
+    const progressTimer = setInterval(() => {
+      setAnalysisProgress(prev => Math.min(prev + 10, 90))
     }, 800)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadedFile)
+
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || 'Tender analysis failed')
+      }
+
+      setAnalysisResult(data)
+      setAnalysisProgress(100)
+      setAnalysisComplete(true)
+      toast.success('Tender analysis generated')
+    } catch (error) {
+      toast.error(error.message || 'Unable to analyze tender')
+    } finally {
+      clearInterval(progressTimer)
+      setAnalyzing(false)
+    }
   }
+
+  const analysisSections = analysisResult ? [
+    {
+      title: 'Tender Identity',
+      content: `Title: ${analysisResult.tender_title || '-'}\nNIT: ${analysisResult.tender_number || '-'}\nDepartment: ${analysisResult.department || '-'}`
+    },
+    {
+      title: 'Key Dates',
+      content: Object.entries(analysisResult.key_dates || {}).map(([key, value]) => `${key.replace(/_/g, ' ')}: ${value}`).join('\n') || '-'
+    },
+    {
+      title: 'Financial Details',
+      content: Object.entries(analysisResult.financial_details || {}).map(([key, value]) => `${key.replace(/_/g, ' ')}: ${value}`).join('\n') || '-'
+    },
+    { title: 'Eligibility Criteria', content: (analysisResult.eligibility_criteria || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Required Documents', content: (analysisResult.required_documents || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Scope of Work', content: analysisResult.scope_of_work || '-' },
+    { title: 'Important Conditions', content: (analysisResult.important_conditions || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Penalty Clauses', content: (analysisResult.penalty_clauses || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Payment Terms', content: analysisResult.payment_terms || '-' },
+    { title: 'Red Flags', content: (analysisResult.red_flags || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Contractor Checklist', content: (analysisResult.contractor_checklist || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
+    { title: 'Summary', content: analysisResult.summary_in_simple_words || '-' },
+  ] : []
 
   return (
     <div className="p-6">
@@ -469,7 +516,7 @@ function TenderManagement({ tenders, onViewTender }) {
                   {uploadedFile ? (
                     <div className="flex items-center justify-center gap-3">
                       <FileText className="w-8 h-8 text-orange" />
-                      <span className="font-medium">{uploadedFile.name} ({uploadedFile.size})</span>
+                      <span className="font-medium">{uploadedFile.name} ({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
                       <button onClick={() => setUploadedFile(null)} className="p-1 hover:bg-slate-100 rounded">
                         <X className="w-4 h-4" />
                       </button>
@@ -503,18 +550,7 @@ function TenderManagement({ tenders, onViewTender }) {
             </>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
-              {[
-                { title: 'Tender Identity', content: `Title: ${tenderAnalysis.identity.title}\nNIT: ${tenderAnalysis.identity.nit}\nDepartment: ${tenderAnalysis.identity.department}\nLocation: ${tenderAnalysis.identity.location}` },
-                { title: 'Key Dates', content: `Sale Period: ${tenderAnalysis.dates.salePeriod}\nSubmission: ${tenderAnalysis.dates.submission}\nBid Opening: ${tenderAnalysis.dates.bidOpening}\nCompletion: ${tenderAnalysis.dates.completion}\nDays to Submit: ${tenderAnalysis.dates.daysToSubmit} days` },
-                { title: 'Financial Details', content: `Estimated: ₹${tenderAnalysis.financial.estimatedValue.toLocaleString()}\nEMD: ₹${tenderAnalysis.financial.emd.toLocaleString()}\nSecurity: ${tenderAnalysis.financial.securityDeposit}\nPerformance: ${tenderAnalysis.financial.performanceGuarantee}` },
-                { title: 'Eligibility Criteria', content: `Class: ${tenderAnalysis.eligibility.class}\nTurnover: ${tenderAnalysis.eligibility.turnover}\nExperience: ${tenderAnalysis.eligibility.experience}` },
-                { title: 'Required Documents', content: tenderAnalysis.documents.map((d, i) => `${i + 1}. ${d}`).join('\n') },
-                { title: 'Scope of Work', content: tenderAnalysis.scope },
-                { title: 'Payment Terms', content: tenderAnalysis.payment },
-                { title: 'Penalty Clauses', content: tenderAnalysis.penalties.map((p, i) => `${i + 1}. ${p}`).join('\n') },
-                { title: 'Special Conditions', content: tenderAnalysis.conditions.map((c, i) => `${i + 1}. ${c}`).join('\n') },
-                { title: "Admin's Bid Recommendation", content: tenderAnalysis.recommendation },
-              ].map((section, idx) => (
+              {analysisSections.map((section, idx) => (
                 <details key={idx} className="border rounded-lg">
                   <summary className="px-4 py-3 cursor-pointer font-medium text-navy flex items-center justify-between">
                     {section.title}
@@ -525,7 +561,7 @@ function TenderManagement({ tenders, onViewTender }) {
               ))}
               <div className="flex gap-4 pt-4">
                 <button className="flex-1 border border-navy text-navy py-2 rounded-lg hover:bg-navy-light">Edit Analysis</button>
-                <button onClick={() => { setAnalysisComplete(false); setUploadedFile(null); setSelectedContractor(''); toast.success('Analysis published!') }} className="flex-1 bg-teal text-white py-2 rounded-lg hover:bg-teal/90">
+                <button onClick={() => { setAnalysisComplete(false); setAnalysisResult(null); setUploadedFile(null); setSelectedContractor(''); toast.success('Analysis published!') }} className="flex-1 bg-teal text-white py-2 rounded-lg hover:bg-teal/90">
                   Publish to Contractor
                 </button>
                 <button className="flex-1 border border-slate text-slate py-2 rounded-lg hover:bg-slate-50">Save Draft</button>
