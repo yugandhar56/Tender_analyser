@@ -583,7 +583,7 @@ function TenderManagement({ tenders, onViewTender }) {
 
 // ==================== MOBILE APP LOGIN ====================
 function MobileLogin({ onLogin }) {
-  const [phone, setPhone] = useState('98765 43210')
+  const [phone, setPhone] = useState('9876543210')
 
   const handleSubmit = () => {
     if (phone.length === 10) {
