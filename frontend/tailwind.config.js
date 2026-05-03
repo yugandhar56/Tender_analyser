@@ -6,6 +6,10 @@ export default {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
+        brand: {
+          DEFAULT: '#1A6B6B',
+          dark: '#155858',
+        },
         navy: {
           DEFAULT: '#1B2A4A',
           light: '#EAF0FB',

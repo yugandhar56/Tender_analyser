@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
+import ResultsDashboard from './components/ResultsDashboard'
 import { 
   Users, Lock, Briefcase, BarChart3, Settings, Search, Bell, 
   LogOut, ChevronRight, ChevronDown, X, Check, Star,
@@ -9,7 +10,44 @@ import {
   Building, Shield, ArrowRight, Loader, Menu, XCircle
 } from 'lucide-react'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://tender-analyser-1.onrender.com').replace(/\/$/, '')
+const DEFAULT_API_BASE_URL = import.meta.env.DEV
+  ? 'http://localhost:8000'
+  : 'https://tender-analyser-1.onrender.com'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
+const ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000
+
+function toArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean)
+  if (!value) return []
+  if (typeof value === 'string') {
+    return value
+      .split(/\r?\n/)
+      .map((item) => item.replace(/^\s*[-*]?\s*\d*[.)]?\s*/, '').trim())
+      .filter(Boolean)
+  }
+  return [String(value)]
+}
+
+function normalizeAnalysisResult(data) {
+  const analysis = data?.analysis || data?.result || data
+
+  return {
+    tender_title: analysis?.tender_title || 'Tender Analysis',
+    department: analysis?.department || 'Department not detected',
+    tender_number: analysis?.tender_number || 'N/A',
+    key_dates: analysis?.key_dates || {},
+    financial_details: analysis?.financial_details || {},
+    eligibility_criteria: toArray(analysis?.eligibility_criteria),
+    required_documents: toArray(analysis?.required_documents),
+    scope_of_work: analysis?.scope_of_work || '',
+    important_conditions: toArray(analysis?.important_conditions),
+    penalty_clauses: toArray(analysis?.penalty_clauses),
+    payment_terms: analysis?.payment_terms || '',
+    red_flags: toArray(analysis?.red_flags),
+    contractor_checklist: toArray(analysis?.contractor_checklist),
+    summary_in_simple_words: analysis?.summary_in_simple_words || 'Analysis generated successfully.',
+  }
+}
 
 // ==================== DATA ====================
 const sampleClients = [
@@ -411,12 +449,21 @@ function TenderManagement({ tenders, onViewTender }) {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [analysisError, setAnalysisError] = useState('')
   const [analysisComplete, setAnalysisComplete] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0]
     if (file) setUploadedFile(file)
+  }
+
+  const resetAnalysisForm = () => {
+    setAnalysisComplete(false)
+    setAnalysisResult(null)
+    setAnalysisError('')
+    setUploadedFile(null)
+    setSelectedContractor('')
   }
 
   const handleAnalyze = async () => {
@@ -427,11 +474,14 @@ function TenderManagement({ tenders, onViewTender }) {
 
     setAnalyzing(true)
     setAnalysisProgress(0)
+    setAnalysisError('')
     setAnalysisResult(null)
 
     const progressTimer = setInterval(() => {
       setAnalysisProgress(prev => Math.min(prev + 10, 90))
     }, 800)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), ANALYSIS_TIMEOUT_MS)
 
     try {
       const formData = new FormData()
@@ -440,6 +490,7 @@ function TenderManagement({ tenders, onViewTender }) {
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       })
 
       const data = await response.json()
@@ -447,41 +498,23 @@ function TenderManagement({ tenders, onViewTender }) {
         throw new Error(data.detail || data.error || 'Tender analysis failed')
       }
 
-      setAnalysisResult(data)
+      setAnalysisResult(normalizeAnalysisResult(data))
       setAnalysisProgress(100)
       setAnalysisComplete(true)
       toast.success('Tender analysis generated')
     } catch (error) {
-      toast.error(error.message || 'Unable to analyze tender')
+      const message = error.name === 'AbortError'
+        ? 'Analysis is taking too long. Please try again or check the backend service.'
+        : error.message || 'Unable to analyze tender'
+
+      setAnalysisError(message)
+      toast.error(message)
     } finally {
       clearInterval(progressTimer)
+      clearTimeout(timeout)
       setAnalyzing(false)
     }
   }
-
-  const analysisSections = analysisResult ? [
-    {
-      title: 'Tender Identity',
-      content: `Title: ${analysisResult.tender_title || '-'}\nNIT: ${analysisResult.tender_number || '-'}\nDepartment: ${analysisResult.department || '-'}`
-    },
-    {
-      title: 'Key Dates',
-      content: Object.entries(analysisResult.key_dates || {}).map(([key, value]) => `${key.replace(/_/g, ' ')}: ${value}`).join('\n') || '-'
-    },
-    {
-      title: 'Financial Details',
-      content: Object.entries(analysisResult.financial_details || {}).map(([key, value]) => `${key.replace(/_/g, ' ')}: ${value}`).join('\n') || '-'
-    },
-    { title: 'Eligibility Criteria', content: (analysisResult.eligibility_criteria || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Required Documents', content: (analysisResult.required_documents || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Scope of Work', content: analysisResult.scope_of_work || '-' },
-    { title: 'Important Conditions', content: (analysisResult.important_conditions || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Penalty Clauses', content: (analysisResult.penalty_clauses || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Payment Terms', content: analysisResult.payment_terms || '-' },
-    { title: 'Red Flags', content: (analysisResult.red_flags || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Contractor Checklist', content: (analysisResult.contractor_checklist || []).map((item, i) => `${i + 1}. ${item}`).join('\n') || '-' },
-    { title: 'Summary', content: analysisResult.summary_in_simple_words || '-' },
-  ] : []
 
   return (
     <div className="p-6">
@@ -547,25 +580,27 @@ function TenderManagement({ tenders, onViewTender }) {
                   <p className="text-right text-sm text-slate mt-2">{analysisProgress}% Complete</p>
                 </div>
               )}
+
+              {analysisError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {analysisError}
+                </div>
+              )}
             </>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
-              {analysisSections.map((section, idx) => (
-                <details key={idx} className="border rounded-lg">
-                  <summary className="px-4 py-3 cursor-pointer font-medium text-navy flex items-center justify-between">
-                    {section.title}
-                    <ChevronDown className="w-4 h-4" />
-                  </summary>
-                  <div className="px-4 py-3 border-t text-sm text-slate whitespace-pre-line">{section.content}</div>
-                </details>
-              ))}
-              <div className="flex gap-4 pt-4">
+          ) : analysisResult ? (
+            <div className="space-y-6">
+              <ResultsDashboard analysis={analysisResult} onBack={resetAnalysisForm} />
+              <div className="flex gap-4 rounded-xl border bg-white p-6 shadow-sm">
                 <button className="flex-1 border border-navy text-navy py-2 rounded-lg hover:bg-navy-light">Edit Analysis</button>
-                <button onClick={() => { setAnalysisComplete(false); setAnalysisResult(null); setUploadedFile(null); setSelectedContractor(''); toast.success('Analysis published!') }} className="flex-1 bg-teal text-white py-2 rounded-lg hover:bg-teal/90">
+                <button onClick={() => { resetAnalysisForm(); toast.success('Analysis published!') }} className="flex-1 bg-teal text-white py-2 rounded-lg hover:bg-teal/90">
                   Publish to Contractor
                 </button>
                 <button className="flex-1 border border-slate text-slate py-2 rounded-lg hover:bg-slate-50">Save Draft</button>
               </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-white p-6 text-center text-slate shadow-sm">
+              Analysis result is not available. Please generate the analysis again.
             </div>
           )}
         </div>
